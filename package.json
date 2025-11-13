@@ -1,0 +1,12 @@
+{
+  "name": "create-anything",
+  "private": true,
+  "workspaces": [
+    "web"
+  ],
+  "scripts": {
+    "dev": "cd web && npm run dev",
+    "build": "cd web && npm run build",
+    "typecheck": "cd web && npm run typecheck"
+  }
+}
