@@ -7,254 +7,207 @@
  */
 import CreateAuth from "@auth/create"
 import Credentials from "@auth/core/providers/credentials"
-import { Pool } from '@neondatabase/serverless'
+import { createClient } from '@supabase/supabase-js'
 import { hash, verify } from 'argon2'
 
-function Adapter(client) {
+const supabase = createClient(
+  process.env.VITE_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+)
+
+function Adapter(supabaseClient) {
   return {
-    async createVerificationToken(
-      verificationToken
-    ) {
+    async createVerificationToken(verificationToken) {
       const { identifier, expires, token } = verificationToken;
-      const sql = `
-        INSERT INTO auth_verification_token ( identifier, expires, token )
-        VALUES ($1, $2, $3)
-        `;
-      await client.query(sql, [identifier, expires, token]);
+      const { error } = await supabaseClient
+        .from('auth_verification_token')
+        .insert({ identifier, expires, token });
+      if (error) throw error;
       return verificationToken;
     },
-    async useVerificationToken({
-      identifier,
-      token,
-    }) {
-      const sql = `delete from auth_verification_token
-      where identifier = $1 and token = $2
-      RETURNING identifier, expires, token `;
-      const result = await client.query(sql, [identifier, token]);
-      return result.rowCount !== 0 ? result.rows[0] : null;
+    async useVerificationToken({ identifier, token }) {
+      const { data, error } = await supabaseClient
+        .from('auth_verification_token')
+        .delete()
+        .eq('identifier', identifier)
+        .eq('token', token)
+        .select();
+      if (error) throw error;
+      return data?.[0] || null;
     },
-
     async createUser(user) {
       const { name, email, emailVerified, image } = user;
-      const sql = `
-        INSERT INTO auth_users (name, email, "emailVerified", image)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, name, email, "emailVerified", image`;
-      const result = await client.query(sql, [
-        name,
-        email,
-        emailVerified,
-        image,
-      ]);
-      return result.rows[0];
+      const { data, error } = await supabaseClient
+        .from('auth_users')
+        .insert({ name, email, emailVerified, image })
+        .select();
+      if (error) throw error;
+      return data?.[0];
     },
     async getUser(id) {
-      const sql = 'select * from auth_users where id = $1';
       try {
-        const result = await client.query(sql, [id]);
-        return result.rowCount === 0 ? null : result.rows[0];
+        const { data, error } = await supabaseClient
+          .from('auth_users')
+          .select()
+          .eq('id', id)
+          .maybeSingle();
+        if (error) throw error;
+        return data;
       } catch {
         return null;
       }
     },
     async getUserByEmail(email) {
-      const sql = 'select * from auth_users where email = $1';
-      const result = await client.query(sql, [email]);
-      if (result.rowCount === 0) {
-        return null;
-      }
-      const userData = result.rows[0];
-      const accountsData = await client.query(
-        'select * from auth_accounts where "providerAccountId" = $1',
-        [userData.id]
-      );
+      const { data: userData, error: userError } = await supabaseClient
+        .from('auth_users')
+        .select()
+        .eq('email', email)
+        .maybeSingle();
+      if (userError) throw userError;
+      if (!userData) return null;
+
+      const { data: accountsData, error: accountsError } = await supabaseClient
+        .from('auth_accounts')
+        .select()
+        .eq('userId', userData.id);
+      if (accountsError) throw accountsError;
+
       return {
         ...userData,
-        accounts: accountsData.rows,
+        accounts: accountsData || [],
       };
     },
-    async getUserByAccount({
-      providerAccountId,
-      provider,
-    }) {
-      const sql = `
-          select u.* from auth_users u join auth_accounts a on u.id = a."userId"
-          where
-          a.provider = $1
-          and
-          a."providerAccountId" = $2`;
-
-      const result = await client.query(sql, [provider, providerAccountId]);
-      return result.rowCount !== 0 ? result.rows[0] : null;
+    async getUserByAccount({ providerAccountId, provider }) {
+      const { data, error } = await supabaseClient
+        .from('auth_users')
+        .select()
+        .eq('accounts.provider', provider)
+        .eq('accounts.providerAccountId', providerAccountId)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
     },
     async updateUser(user) {
-      const fetchSql = 'select * from auth_users where id = $1';
-      const query1 = await client.query(fetchSql, [user.id]);
-      const oldUser = query1.rows[0];
+      const { data: oldUserData } = await supabaseClient
+        .from('auth_users')
+        .select()
+        .eq('id', user.id)
+        .maybeSingle();
 
       const newUser = {
-        ...oldUser,
+        ...oldUserData,
         ...user,
       };
-
       const { id, name, email, emailVerified, image } = newUser;
-      const updateSql = `
-        UPDATE auth_users set
-        name = $2, email = $3, "emailVerified" = $4, image = $5
-        where id = $1
-        RETURNING name, id, email, "emailVerified", image
-      `;
-      const query2 = await client.query(updateSql, [
-        id,
-        name,
-        email,
-        emailVerified,
-        image,
-      ]);
-      return query2.rows[0];
+      const { data, error } = await supabaseClient
+        .from('auth_users')
+        .update({ name, email, emailVerified, image })
+        .eq('id', id)
+        .select();
+      if (error) throw error;
+      return data?.[0];
     },
     async linkAccount(account) {
-      const sql = `
-      insert into auth_accounts
-      (
-        "userId",
-        provider,
-        type,
-        "providerAccountId",
-        access_token,
-        expires_at,
-        refresh_token,
-        id_token,
-        scope,
-        session_state,
-        token_type,
-        password
-      )
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-      returning
-        id,
-        "userId",
-        provider,
-        type,
-        "providerAccountId",
-        access_token,
-        expires_at,
-        refresh_token,
-        id_token,
-        scope,
-        session_state,
-        token_type,
-        password
-      `;
-
-      const params = [
-        account.userId,
-        account.provider,
-        account.type,
-        account.providerAccountId,
-        account.access_token,
-        account.expires_at,
-        account.refresh_token,
-        account.id_token,
-        account.scope,
-        account.session_state,
-        account.token_type,
-        account.extraData?.password,
-      ];
-
-      const result = await client.query(sql, params);
-      return result.rows[0];
+      const { data, error } = await supabaseClient
+        .from('auth_accounts')
+        .insert({
+          userId: account.userId,
+          provider: account.provider,
+          type: account.type,
+          providerAccountId: account.providerAccountId,
+          access_token: account.access_token,
+          expires_at: account.expires_at,
+          refresh_token: account.refresh_token,
+          id_token: account.id_token,
+          scope: account.scope,
+          session_state: account.session_state,
+          token_type: account.token_type,
+          password: account.extraData?.password,
+        })
+        .select();
+      if (error) throw error;
+      return data?.[0];
     },
     async createSession({ sessionToken, userId, expires }) {
       if (userId === undefined) {
         throw Error('userId is undef in createSession');
       }
-      const sql = `insert into auth_sessions ("userId", expires, "sessionToken")
-      values ($1, $2, $3)
-      RETURNING id, "sessionToken", "userId", expires`;
-
-      const result = await client.query(sql, [userId, expires, sessionToken]);
-      return result.rows[0];
+      const { data, error } = await supabaseClient
+        .from('auth_sessions')
+        .insert({ userId, sessionToken, expires })
+        .select();
+      if (error) throw error;
+      return data?.[0];
     },
-
     async getSessionAndUser(sessionToken) {
       if (sessionToken === undefined) {
         return null;
       }
-      const result1 = await client.query(
-        `select * from auth_sessions where "sessionToken" = $1`,
-        [sessionToken]
-      );
-      if (result1.rowCount === 0) {
-        return null;
-      }
-      const session = result1.rows[0];
+      const { data: sessionData, error: sessionError } = await supabaseClient
+        .from('auth_sessions')
+        .select()
+        .eq('sessionToken', sessionToken)
+        .maybeSingle();
+      if (sessionError) throw sessionError;
+      if (!sessionData) return null;
 
-      const result2 = await client.query(
-        'select * from auth_users where id = $1',
-        [session.userId]
-      );
-      if (result2.rowCount === 0) {
-        return null;
-      }
-      const user = result2.rows[0];
+      const { data: userData, error: userError } = await supabaseClient
+        .from('auth_users')
+        .select()
+        .eq('id', sessionData.userId)
+        .maybeSingle();
+      if (userError) throw userError;
+      if (!userData) return null;
+
       return {
-        session,
-        user,
+        session: sessionData,
+        user: userData,
       };
     },
-    async updateSession(
-      session
-    ) {
+    async updateSession(session) {
       const { sessionToken } = session;
-      const result1 = await client.query(
-        `select * from auth_sessions where "sessionToken" = $1`,
-        [sessionToken]
-      );
-      if (result1.rowCount === 0) {
-        return null;
-      }
-      const originalSession = result1.rows[0];
+      const { data: sessionData, error: selectError } = await supabaseClient
+        .from('auth_sessions')
+        .select()
+        .eq('sessionToken', sessionToken)
+        .maybeSingle();
+      if (selectError) throw selectError;
+      if (!sessionData) return null;
 
-      const newSession = {
-        ...originalSession,
-        ...session,
-      };
-      const sql = `
-        UPDATE auth_sessions set
-        expires = $2
-        where "sessionToken" = $1
-        `;
-      const result = await client.query(sql, [
-        newSession.sessionToken,
-        newSession.expires,
-      ]);
-      return result.rows[0];
+      const { data, error } = await supabaseClient
+        .from('auth_sessions')
+        .update({ expires: session.expires })
+        .eq('sessionToken', sessionToken)
+        .select();
+      if (error) throw error;
+      return data?.[0];
     },
     async deleteSession(sessionToken) {
-      const sql = `delete from auth_sessions where "sessionToken" = $1`;
-      await client.query(sql, [sessionToken]);
+      const { error } = await supabaseClient
+        .from('auth_sessions')
+        .delete()
+        .eq('sessionToken', sessionToken);
+      if (error) throw error;
     },
     async unlinkAccount(partialAccount) {
       const { provider, providerAccountId } = partialAccount;
-      const sql = `delete from auth_accounts where "providerAccountId" = $1 and provider = $2`;
-      await client.query(sql, [providerAccountId, provider]);
+      const { error } = await supabaseClient
+        .from('auth_accounts')
+        .delete()
+        .eq('provider', provider)
+        .eq('providerAccountId', providerAccountId);
+      if (error) throw error;
     },
     async deleteUser(userId) {
-      await client.query('delete from auth_users where id = $1', [userId]);
-      await client.query('delete from auth_sessions where "userId" = $1', [
-        userId,
-      ]);
-      await client.query('delete from auth_accounts where "userId" = $1', [
-        userId,
-      ]);
+      const { error } = await supabaseClient
+        .from('auth_users')
+        .delete()
+        .eq('id', userId);
+      if (error) throw error;
     },
   };
 }
-const pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-    });
-const adapter = Adapter(pool);
+const adapter = Adapter(supabase);
 
 export const { auth } = CreateAuth({
   providers: [Credentials({
