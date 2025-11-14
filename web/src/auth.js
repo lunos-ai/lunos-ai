@@ -1,3 +1,5 @@
+'use server';
+
 /**
  * WARNING: This file connects this app to Anythings's internal auth system. Do
  * not attempt to edit it. Modifying it will have no effect on your project as it is controlled by our system.
