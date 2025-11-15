@@ -1,6 +1,13 @@
-import sql from "@/app/api/utils/sql";
+'use server';
+
 import { auth } from "@/auth";
 import { hash } from "argon2";
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.VITE_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+);
 
 export async function GET() {
   try {
@@ -10,15 +17,14 @@ export async function GET() {
     }
 
     const userId = session.user.id;
-    const rows = await sql`
-      SELECT id, name, email, image, onboarding_completed 
-      FROM auth_users 
-      WHERE id = ${userId} 
-      LIMIT 1
-    `;
+    const { data, error } = await supabase
+      .from('auth_users')
+      .select('id, name, email, image')
+      .eq('id', userId)
+      .maybeSingle();
 
-    const user = rows?.[0] || null;
-    return Response.json({ user });
+    if (error) throw error;
+    return Response.json({ user: data });
   } catch (err) {
     console.error("GET /api/profile error", err);
     return Response.json({ error: "Internal Server Error" }, { status: 500 });
@@ -36,32 +42,27 @@ export async function PUT(request) {
     const body = await request.json();
     const { name, email, password } = body || {};
 
-    const setClauses = [];
-    const values = [];
+    const updateData = {};
 
     if (typeof name === "string" && name.trim().length > 0) {
-      setClauses.push(`name = $${values.length + 1}`);
-      values.push(name.trim());
+      updateData.name = name.trim();
     }
 
     if (typeof email === "string" && email.trim().length > 0) {
-      setClauses.push(`email = $${values.length + 1}`);
-      values.push(email.trim());
+      updateData.email = email.trim();
     }
 
-    // Handle password update
     if (typeof password === "string" && password.length > 0) {
       const hashedPassword = await hash(password);
-
-      // Update password in auth_accounts table
-      await sql`
-        UPDATE auth_accounts 
-        SET password = ${hashedPassword}
-        WHERE "userId" = ${userId} AND provider = 'credentials'
-      `;
+      const { error } = await supabase
+        .from('auth_accounts')
+        .update({ password: hashedPassword })
+        .eq('userId', userId)
+        .eq('provider', 'credentials');
+      if (error) throw error;
     }
 
-    if (setClauses.length === 0 && !password) {
+    if (Object.keys(updateData).length === 0 && !password) {
       return Response.json(
         { error: "No valid fields to update" },
         { status: 400 },
@@ -70,24 +71,22 @@ export async function PUT(request) {
 
     let updatedUser = null;
 
-    if (setClauses.length > 0) {
-      const finalQuery = `
-        UPDATE auth_users 
-        SET ${setClauses.join(", ")} 
-        WHERE id = $${values.length + 1} 
-        RETURNING id, name, email, image, onboarding_completed
-      `;
-
-      const result = await sql(finalQuery, [...values, userId]);
-      updatedUser = result?.[0] || null;
+    if (Object.keys(updateData).length > 0) {
+      const { data, error } = await supabase
+        .from('auth_users')
+        .update(updateData)
+        .eq('id', userId)
+        .select('id, name, email, image');
+      if (error) throw error;
+      updatedUser = data?.[0] || null;
     } else {
-      // If only password was updated, get current user data
-      const result = await sql`
-        SELECT id, name, email, image, onboarding_completed 
-        FROM auth_users 
-        WHERE id = ${userId}
-      `;
-      updatedUser = result?.[0] || null;
+      const { data, error } = await supabase
+        .from('auth_users')
+        .select('id, name, email, image')
+        .eq('id', userId)
+        .maybeSingle();
+      if (error) throw error;
+      updatedUser = data;
     }
 
     return Response.json({ user: updatedUser });
@@ -106,8 +105,11 @@ export async function DELETE() {
 
     const userId = session.user.id;
 
-    // Delete user and all related data (cascading deletes will handle related tables)
-    await sql`DELETE FROM auth_users WHERE id = ${userId}`;
+    const { error } = await supabase
+      .from('auth_users')
+      .delete()
+      .eq('id', userId);
+    if (error) throw error;
 
     return Response.json({
       success: true,
