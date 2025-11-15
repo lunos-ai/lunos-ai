@@ -1,7 +1,7 @@
 'use server';
 
 import { auth } from "@/auth";
-import { hash } from "argon2";
+import bcrypt from 'bcryptjs';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -53,7 +53,7 @@ export async function PUT(request) {
     }
 
     if (typeof password === "string" && password.length > 0) {
-      const hashedPassword = await hash(password);
+      const hashedPassword = await bcrypt.hash(password, 10);
       const { error } = await supabase
         .from('auth_accounts')
         .update({ password: hashedPassword })
