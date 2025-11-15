@@ -8,5 +8,8 @@
     "dev": "cd web && npm run dev",
     "build": "cd web && npm run build",
     "typecheck": "cd web && npm run typecheck"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0"
   }
 }
