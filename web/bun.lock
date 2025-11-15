@@ -22,7 +22,6 @@
         "@tanstack/react-table": "^8.21.2",
         "@types/babel__core": "^7.20.5",
         "@vis.gl/react-google-maps": "^0.8.3",
-        "argon2": "^0.43.0",
         "classnames": "^2.5.1",
         "clean-stack": "^5.2.0",
         "cmdk": "^1.1.1",
@@ -863,8 +862,6 @@
     "are-we-there-yet": ["are-we-there-yet@2.0.0", "", { "dependencies": { "delegates": "^1.0.0", "readable-stream": "^3.6.0" } }, "sha512-Ci/qENmwHnsYo9xKIcUJN5LeDKdJ6R1Z1j9V/J5wyq8nh/mYPEpIKJbBZXtZjG04HiK7zV/p6Vs9952MrMeUIw=="],
 
     "arg": ["arg@5.0.2", "", {}, "sha512-PYjyFOLKQ9y57JvQ6QLo8dAgNqswh8M1RMJYdQduT6xbWSgK36P/Z/v+p888pM69jMMfS8Xd8F6I1kQ/I9HUGg=="],
-
-    "argon2": ["argon2@0.43.0", "", { "dependencies": { "@phc/format": "^1.0.0", "node-addon-api": "^8.3.1", "node-gyp-build": "^4.8.4" } }, "sha512-u/HKLcbWShVDhkfwI4hWyiUf3qyX8QhTfaIv2cWE18uqhXCmR5hb6Ed7oqYi2KCQegeAnRhiFzbjzm7i5yl1GA=="],
 
     "aria-hidden": ["aria-hidden@1.2.6", "", { "dependencies": { "tslib": "^2.0.0" } }, "sha512-ik3ZgC9dY/lYVVM++OISsaYDeg1tb0VtP5uL3ouh1koGOaUMDPpbFIei4JkFimWUFPn90sbMNMXQAIVOlnYKJA=="],
 
