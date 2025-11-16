@@ -1,4 +1,4 @@
-import sql from "@/app/api/utils/sql";
+import supabase from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 
 export async function GET(request, { params }) {
@@ -11,29 +11,30 @@ export async function GET(request, { params }) {
     const userId = session.user.id;
     const conversationId = params.id;
 
-    // Verify the conversation belongs to the user
-    const conversation = await sql`
-      SELECT id FROM conversations 
-      WHERE id = ${conversationId} AND user_id = ${userId}
-    `;
+    const { data: conversation, error: convError } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("id", conversationId)
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    if (conversation.length === 0) {
+    if (convError) throw convError;
+    if (!conversation) {
       return Response.json(
         { error: "Conversation not found" },
         { status: 404 },
       );
     }
 
-    // Get messages for the conversation, ordered by created_at
-    const messages = await sql`
-      SELECT content, sender, created_at
-      FROM messages 
-      WHERE conversation_id = ${conversationId}
-      ORDER BY created_at ASC
-    `;
+    const { data: messages, error: msgError } = await supabase
+      .from("messages")
+      .select("content, sender, created_at")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true });
 
-    // Format messages to match the frontend structure
-    const formattedMessages = messages.map((msg) => ({
+    if (msgError) throw msgError;
+
+    const formattedMessages = (messages || []).map((msg) => ({
       role: msg.sender === "user" ? "user" : "assistant",
       content: msg.content,
       sender: msg.sender,
@@ -65,36 +66,49 @@ export async function POST(request, { params }) {
       );
     }
 
-    // Verify the conversation belongs to the user
-    const conversation = await sql`
-      SELECT id FROM conversations 
-      WHERE id = ${conversationId} AND user_id = ${userId}
-    `;
+    const { data: conversation, error: convError } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("id", conversationId)
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    if (conversation.length === 0) {
+    if (convError) throw convError;
+    if (!conversation) {
       return Response.json(
         { error: "Conversation not found" },
         { status: 404 },
       );
     }
 
-    // Clear existing messages and insert new ones
-    await sql`DELETE FROM messages WHERE conversation_id = ${conversationId}`;
+    const { error: deleteError } = await supabase
+      .from("messages")
+      .delete()
+      .eq("conversation_id", conversationId);
 
-    // Insert all messages
-    for (const message of messages) {
-      await sql`
-        INSERT INTO messages (conversation_id, user_id, content, sender)
-        VALUES (${conversationId}, ${userId}, ${message.content}, ${message.sender})
-      `;
+    if (deleteError) throw deleteError;
+
+    if (messages.length > 0) {
+      const messageInserts = messages.map((message) => ({
+        conversation_id: conversationId,
+        user_id: userId,
+        content: message.content,
+        sender: message.sender,
+      }));
+
+      const { error: insertError } = await supabase
+        .from("messages")
+        .insert(messageInserts);
+
+      if (insertError) throw insertError;
     }
 
-    // Update conversation updated_at timestamp
-    await sql`
-      UPDATE conversations 
-      SET updated_at = NOW() 
-      WHERE id = ${conversationId}
-    `;
+    const { error: updateError } = await supabase
+      .from("conversations")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", conversationId);
+
+    if (updateError) throw updateError;
 
     return Response.json({
       success: true,

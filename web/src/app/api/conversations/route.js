@@ -1,4 +1,4 @@
-import sql from "@/app/api/utils/sql";
+import supabase from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 
 export async function GET(request) {
@@ -10,15 +10,15 @@ export async function GET(request) {
 
     const userId = session.user.id;
 
-    // Get conversations for the user, ordered by updated_at desc
-    const conversations = await sql`
-      SELECT id, title, created_at, updated_at 
-      FROM conversations 
-      WHERE user_id = ${userId} 
-      ORDER BY updated_at DESC
-    `;
+    const { data: conversations, error } = await supabase
+      .from("conversations")
+      .select("id, title, created_at, updated_at")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false });
 
-    return Response.json({ conversations });
+    if (error) throw error;
+
+    return Response.json({ conversations: conversations || [] });
   } catch (err) {
     console.error("GET /api/conversations error:", err);
     return Response.json({ error: "Internal server error" }, { status: 500 });
@@ -43,23 +43,31 @@ export async function POST(request) {
       );
     }
 
-    // Create new conversation
-    const conversationResult = await sql`
-      INSERT INTO conversations (user_id, title)
-      VALUES (${userId}, ${title})
-      RETURNING id, title, created_at, updated_at
-    `;
+    const { data: conversationResult, error: convError } = await supabase
+      .from("conversations")
+      .insert({ user_id: userId, title })
+      .select("id, title, created_at, updated_at");
 
-    const conversation = conversationResult[0];
+    if (convError) throw convError;
 
-    // Insert messages for the conversation
+    const conversation = conversationResult?.[0];
+    if (!conversation) {
+      throw new Error("Failed to create conversation");
+    }
+
     if (messages.length > 0) {
-      for (const message of messages) {
-        await sql`
-          INSERT INTO messages (conversation_id, user_id, content, sender)
-          VALUES (${conversation.id}, ${userId}, ${message.content}, ${message.sender})
-        `;
-      }
+      const messageInserts = messages.map((message) => ({
+        conversation_id: conversation.id,
+        user_id: userId,
+        content: message.content,
+        sender: message.sender,
+      }));
+
+      const { error: msgError } = await supabase
+        .from("messages")
+        .insert(messageInserts);
+
+      if (msgError) throw msgError;
     }
 
     return Response.json({

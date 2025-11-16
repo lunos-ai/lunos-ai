@@ -1,4 +1,4 @@
-import sql from "@/app/api/utils/sql";
+import supabase from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 
 export async function POST(request) {
@@ -12,40 +12,50 @@ export async function POST(request) {
     const body = await request.json();
     const { name, subjects, planType } = body;
 
-    // Validate required fields
-    if (!name || !subjects || !planType) {
+    if (!subjects || !planType) {
       return Response.json(
         { error: "Missing required fields" },
         { status: 400 },
       );
     }
 
-    // Update user name if provided
-    if (name.trim()) {
-      await sql`UPDATE auth_users SET name = ${name.trim()}, onboarding_completed = TRUE WHERE id = ${userId}`;
-    } else {
-      await sql`UPDATE auth_users SET onboarding_completed = TRUE WHERE id = ${userId}`;
+    if (name?.trim()) {
+      const { error: userError } = await supabase
+        .from("auth_users")
+        .update({ name: name.trim() })
+        .eq("id", userId);
+
+      if (userError) throw userError;
     }
 
-    // Create or update user preferences
-    const existingPrefs =
-      await sql`SELECT * FROM user_preferences WHERE user_id = ${userId}`;
+    const { data: existingPrefs, error: selectError } = await supabase
+      .from("user_preferences")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    if (existingPrefs.length > 0) {
-      // Update existing preferences
-      await sql`
-        UPDATE user_preferences 
-        SET subjects = ${JSON.stringify(subjects)}, 
-            plan_type = ${planType}, 
-            updated_at = NOW()
-        WHERE user_id = ${userId}
-      `;
+    if (selectError) throw selectError;
+
+    if (existingPrefs) {
+      const { error: updateError } = await supabase
+        .from("user_preferences")
+        .update({
+          subjects: subjects,
+          plan_type: planType,
+        })
+        .eq("user_id", userId);
+
+      if (updateError) throw updateError;
     } else {
-      // Create new preferences
-      await sql`
-        INSERT INTO user_preferences (user_id, subjects, plan_type)
-        VALUES (${userId}, ${JSON.stringify(subjects)}, ${planType})
-      `;
+      const { error: insertError } = await supabase
+        .from("user_preferences")
+        .insert({
+          user_id: userId,
+          subjects: subjects,
+          plan_type: planType,
+        });
+
+      if (insertError) throw insertError;
     }
 
     return Response.json({

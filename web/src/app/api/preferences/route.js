@@ -1,4 +1,4 @@
-import sql from "@/app/api/utils/sql";
+import supabase from "@/app/api/utils/sql";
 import { auth } from "@/auth";
 
 export async function GET(request) {
@@ -10,29 +10,27 @@ export async function GET(request) {
 
     const userId = session.user.id;
 
-    // Get user preferences
-    const preferencesResult = await sql`
-      SELECT subjects, plan_type, messages_used_today, last_message_date
-      FROM user_preferences 
-      WHERE user_id = ${userId}
-    `;
+    const { data: prefs, error } = await supabase
+      .from("user_preferences")
+      .select("subjects, plan_type, messages_used_today, last_message_date")
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    let preferences = {
-      subjects: [],
-      planType: "orbit",
-      messagesUsedToday: 0,
-      lastMessageDate: null,
-    };
+    if (error) throw error;
 
-    if (preferencesResult.length > 0) {
-      const prefs = preferencesResult[0];
-      preferences = {
-        subjects: prefs.subjects || [],
-        planType: prefs.plan_type || "orbit",
-        messagesUsedToday: prefs.messages_used_today || 0,
-        lastMessageDate: prefs.last_message_date,
-      };
-    }
+    const preferences = prefs
+      ? {
+          subjects: prefs.subjects || [],
+          planType: prefs.plan_type || "orbit",
+          messagesUsedToday: prefs.messages_used_today || 0,
+          lastMessageDate: prefs.last_message_date,
+        }
+      : {
+          subjects: [],
+          planType: "orbit",
+          messagesUsedToday: 0,
+          lastMessageDate: null,
+        };
 
     return Response.json({ preferences });
   } catch (err) {
@@ -52,55 +50,54 @@ export async function PUT(request) {
     const body = await request.json();
     const { subjects, planType } = body;
 
-    // Check if preferences exist
-    const existingPrefs = await sql`
-      SELECT * FROM user_preferences WHERE user_id = ${userId}
-    `;
+    const { data: existingPrefs, error: selectError } = await supabase
+      .from("user_preferences")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    if (existingPrefs.length > 0) {
-      // Update existing preferences
-      const setClauses = [];
-      const values = [];
+    if (selectError) throw selectError;
 
+    if (existingPrefs) {
+      const updateData = {};
       if (subjects !== undefined) {
-        setClauses.push(`subjects = $${values.length + 1}`);
-        values.push(JSON.stringify(subjects));
+        updateData.subjects = subjects;
       }
-
       if (planType !== undefined) {
-        setClauses.push(`plan_type = $${values.length + 1}`);
-        values.push(planType);
+        updateData.plan_type = planType;
       }
 
-      setClauses.push(`updated_at = NOW()`);
+      if (Object.keys(updateData).length > 0) {
+        const { data: updatedPrefs, error: updateError } = await supabase
+          .from("user_preferences")
+          .update(updateData)
+          .eq("user_id", userId)
+          .select("subjects, plan_type, messages_used_today, last_message_date");
 
-      if (setClauses.length > 1) {
-        // More than just updated_at
-        const query = `
-          UPDATE user_preferences 
-          SET ${setClauses.join(", ")} 
-          WHERE user_id = $${values.length + 1}
-          RETURNING subjects, plan_type, messages_used_today, last_message_date
-        `;
+        if (updateError) throw updateError;
 
-        const result = await sql(query, [...values, userId]);
-
-        const updatedPrefs = result[0];
-        return Response.json({
-          preferences: {
-            subjects: updatedPrefs.subjects || [],
-            planType: updatedPrefs.plan_type,
-            messagesUsedToday: updatedPrefs.messages_used_today,
-            lastMessageDate: updatedPrefs.last_message_date,
-          },
-        });
+        const prefs = updatedPrefs?.[0];
+        if (prefs) {
+          return Response.json({
+            preferences: {
+              subjects: prefs.subjects || [],
+              planType: prefs.plan_type,
+              messagesUsedToday: prefs.messages_used_today,
+              lastMessageDate: prefs.last_message_date,
+            },
+          });
+        }
       }
     } else {
-      // Create new preferences
-      await sql`
-        INSERT INTO user_preferences (user_id, subjects, plan_type)
-        VALUES (${userId}, ${JSON.stringify(subjects || [])}, ${planType || "orbit"})
-      `;
+      const { error: insertError } = await supabase
+        .from("user_preferences")
+        .insert({
+          user_id: userId,
+          subjects: subjects || [],
+          plan_type: planType || "orbit",
+        });
+
+      if (insertError) throw insertError;
     }
 
     return Response.json({
