@@ -10,9 +10,10 @@ import Credentials from "@auth/core/providers/credentials"
 import { createClient } from '@supabase/supabase-js'
 import bcrypt from 'bcryptjs'
 
+// WARNING: TEMPORARILY HARDCODED FOR DEBUGGING (INSECURE)
 const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+  'https://zvawrbajdslrkbsgyegn.supabase.co', // <--- Hardcoded URL in quotes
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2YXdyYmFqZHNscmtic2d5ZWduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzIzMTMxMSwiZXhwIjoyMDc4ODA3MzExfQ.l1twPcFGg310GgOCWk7u8i4wplcM_bAAyyoC8tA5CTE' // <--- Hardcoded Service Role Key in quotes
 )
 
 function Adapter(supabaseClient) {
