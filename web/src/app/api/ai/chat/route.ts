@@ -9,7 +9,7 @@ async function run() {
     model: "mistral-3b-2410",
     messages: [
       {
-        content: UserResponse,
+        content: UserPrompt,
         role: "user",
       },
     ],
