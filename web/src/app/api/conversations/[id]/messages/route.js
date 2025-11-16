@@ -1,4 +1,4 @@
-import supabase from "@/app/api/utils/sql";
+import supabase from "@/app/api/utils/sql.js";
 import { auth } from "@/auth";
 
 export async function GET(request, { params }) {
